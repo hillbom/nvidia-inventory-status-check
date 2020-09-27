@@ -1,0 +1,144 @@
+AWSTemplateFormatVersion: 2010-09-09
+Parameters:
+
+  Email:
+    Type: String
+
+Mappings:
+
+  RegionMap:
+    # Sweden
+    eu-north-1:
+      Locale: sv_se
+      Currency: SEK
+      SkuID: 5438798100 # Use 5394903900 to test with RTX 2060 SUPER
+
+Resources:
+
+  Lambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Runtime: nodejs12.x
+      Role: !GetAtt ExecutionRole.Arn
+      Timeout: 3
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref Topic
+          LOCALE: !FindInMap [RegionMap, !Ref "AWS::Region", Locale]
+          CURRENCY: !FindInMap [RegionMap, !Ref "AWS::Region", Currency]
+          SKU_ID: !FindInMap [RegionMap, !Ref "AWS::Region", SkuID]
+      Code:
+        ZipFile: |
+          const AWS = require('aws-sdk')
+          const https = require('https')
+          exports.handler = async function (event) {
+            return new Promise(function (resolve, reject) {
+              return new Promise(function (resolve, reject) {
+                https.get({
+                  hostname: 'api-prod.nvidia.com',
+                  path: '/direct-sales-shop/DR/products/' + process.env.LOCALE + '/' + process.env.CURRENCY + '/' + process.env.SKU_ID,
+                  headers: {
+                    authority: 'api-prod.nvidia.com',
+                    accept: 'application/json, text/javascript, */* q=0.01',
+                    origin: 'https://www.nvidia.com',
+                    'user-agent': 'Mozilla/5.0 (X11 Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.102 Safari/537.36'
+                  }
+                }, (response) => {
+                  let data = ''
+                  response.on('data', function (chunk) { data += chunk })
+                  response.on('end', function () {
+                    if (data) {
+                      console.log(data)
+                      data = JSON.parse(data)
+                      if (data && data.products && data.products.product && data.products.product.length > 0) {
+                        return Promise.all(data.products.product.map(product => {
+                          if (product && product.inventoryStatus && product.inventoryStatus.productIsInStock && product.inventoryStatus.productIsInStock === 'true') {
+                            return sendSnsMessage('Product back in stock!')
+                          } else {
+                            return resolve('Not in stock.')
+                          }
+                        }))
+                      } else {
+                        return reject(new Error('Could not find any listed products, investegate logs for details!'))
+                      }
+                    } else {
+                      return reject(new Error('No data return from http request, investegate logs for details!'))
+                    }
+                  })
+                }).on('error', (error) => {
+                  return reject(new Error(error))
+                })
+              }).then(result => {
+                console.log('Execution result:', result)
+                return resolve(result)
+              }).catch(error => {
+                console.log('Execution error:', error)
+                return sendSnsMessage('An error occurred when getting inventory, investegate the logs for details!')
+              })
+            })
+          }
+          function sendSnsMessage (message) {
+            return new AWS.SNS({ apiVersion: '2010-03-31' }).publish({
+              Message: message,
+              TopicArn: process.env.SNS_TOPIC_ARN
+            }).promise()
+          }
+
+  EventsRule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: rate(20 minutes)
+      State: ENABLED
+      Targets:
+        - Id: primary-target
+          Arn: !GetAtt Lambda.Arn
+
+  EventInvokeLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Lambda
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt EventsRule.Arn
+
+  Topic:
+    Type: AWS::SNS::Topic
+
+  Subscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref Topic
+      Protocol: email
+      Endpoint: !Ref Email
+
+  LambdaInvokeSNSPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      FunctionName: !GetAtt Lambda.Arn
+      SourceArn: !Ref Topic
+
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Policies:
+        - PolicyName: LambdaSnsPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Resource: !Ref Topic
+                Action:
+                  - sns:Publish
