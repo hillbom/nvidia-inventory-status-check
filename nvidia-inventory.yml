@@ -54,7 +54,12 @@ Resources:
                       if (data && data.products && data.products.product && data.products.product.length > 0) {
                         return Promise.all(data.products.product.map(product => {
                           if (product && product.inventoryStatus && product.inventoryStatus.productIsInStock && product.inventoryStatus.productIsInStock === 'true') {
-                            return sendSnsMessage('Product back in stock!')
+                            sendSnsMessage('Product back in stock!').then(result => {
+                              return resolve(result)
+                            }).catch(error => {
+                              console.log('SNS error:', error)
+                              return reject(new Error(error))
+                            })
                           } else {
                             return resolve('Not in stock.')
                           }
@@ -74,7 +79,12 @@ Resources:
                 return resolve(result)
               }).catch(error => {
                 console.log('Execution error:', error)
-                return sendSnsMessage('An error occurred when getting inventory, investegate the logs for details!')
+                sendSnsMessage('An error occurred when getting inventory, investegate the logs for details!').then(result => {
+                  return resolve(result)
+                }).catch(error => {
+                  console.log('SNS error:', error)
+                  return reject(new Error(error))
+                })
               })
             })
           }
