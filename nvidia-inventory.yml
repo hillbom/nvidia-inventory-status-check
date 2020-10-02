@@ -12,7 +12,7 @@ Mappings:
       NvidiaLocale: sv-se
       Locale: sv_se
       Currency: SEK
-      SkuID: 5394903900 #5438798100 # Use 5394903900 to test with RTX 2060 SUPER
+      SkuID: 5438798100 # Use 5394903900 to test with RTX 2060 SUPER
 
 Resources:
 
