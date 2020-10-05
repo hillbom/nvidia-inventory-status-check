@@ -59,7 +59,7 @@ Resources:
                             new AWS.SNS({ apiVersion: '2010-03-31' }).publish({
                               Message: 'Product back in stock! Goto https://www.nvidia.com/' + process.env.NVIDIA_LOCALE + '/geforce/graphics-cards/30-series/',
                               TopicArn: process.env.SNS_TOPIC_ARN
-                            }).then(data => {
+                            }).promise().then(result => {
                               return resolve('Product back in stock!')
                             }).catch(error => {
                               return reject(new Error(error))
