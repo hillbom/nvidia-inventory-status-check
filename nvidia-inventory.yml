@@ -9,6 +9,7 @@ Mappings:
   RegionMap:
     # Sweden
     eu-north-1:
+      NvidiaLocale: sv-se
       Locale: sv_se
       Currency: SEK
       SkuID: 5438798100 # Use 5394903900 to test with RTX 2060 SUPER
@@ -25,6 +26,7 @@ Resources:
       Environment:
         Variables:
           SNS_TOPIC_ARN: !Ref Topic
+          NVIDIA_LOCALE: !FindInMap [RegionMap, !Ref "AWS::Region", NvidiaLocale]
           LOCALE: !FindInMap [RegionMap, !Ref "AWS::Region", Locale]
           CURRENCY: !FindInMap [RegionMap, !Ref "AWS::Region", Currency]
           SKU_ID: !FindInMap [RegionMap, !Ref "AWS::Region", SkuID]
@@ -54,7 +56,14 @@ Resources:
                       if (data && data.products && data.products.product && data.products.product.length > 0) {
                         return Promise.all(data.products.product.map(product => {
                           if (product && product.inventoryStatus && product.inventoryStatus.productIsInStock && product.inventoryStatus.productIsInStock === 'true') {
-                            return sendSnsMessage('Product back in stock!')
+                            new AWS.SNS({ apiVersion: '2010-03-31' }).publish({
+                              Message: 'Product back in stock! Goto https://www.nvidia.com/' + process.env.NVIDIA_LOCALE + '/geforce/graphics-cards/30-series/',
+                              TopicArn: process.env.SNS_TOPIC_ARN
+                            }).promise().then(result => {
+                              return resolve('Product back in stock!')
+                            }).catch(error => {
+                              return reject(new Error(error))
+                            })
                           } else {
                             return resolve('Not in stock.')
                           }
@@ -74,15 +83,16 @@ Resources:
                 return resolve(result)
               }).catch(error => {
                 console.log('Execution error:', error)
-                return sendSnsMessage('An error occurred when getting inventory, investegate the logs for details!')
+                new AWS.SNS({ apiVersion: '2010-03-31' }).publish({
+                  Message: 'An error occurred when getting inventory, investegate the logs for details!',
+                  TopicArn: process.env.SNS_TOPIC_ARN
+                }).promise().then(result => {
+                  return resolve(result)
+                }).catch(error => {
+                  return reject(new Error(error))
+                })
               })
             })
-          }
-          function sendSnsMessage (message) {
-            return new AWS.SNS({ apiVersion: '2010-03-31' }).publish({
-              Message: message,
-              TopicArn: process.env.SNS_TOPIC_ARN
-            }).promise()
           }
 
   EventsRule:
